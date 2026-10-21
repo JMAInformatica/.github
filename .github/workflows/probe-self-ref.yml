@@ -1,0 +1,25 @@
+# Prova temporária. Sem actions/checkout: a política deste repositório
+# só aceita actions da JMAInformatica.
+name: Probe $/
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  self:
+    name: $/ sem checkout
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Referência $/
+        id: calc
+        continue-on-error: true
+        uses: $/.github/actions/version
+        with:
+          default-branch: main
+
+      - name: Registrar resultado
+        run: echo "outcome=${{ steps.calc.outcome }}"
