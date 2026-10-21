@@ -207,10 +207,13 @@ Cache de cada imagem usa um scope próprio (nome + target), para uma matriz não
 
 Conferir a assinatura:
 
+O SAN do certificado keyless é o workflow reutilizável (`job_workflow_ref` deste arquivo), não o workflow do repositório que publicou a imagem. A extensão de repositório do certificado é o chamador. Troque `<repo>` por esse repositório, por exemplo `ByllOps`.
+
 ```bash
 cosign verify \
-  --certificate-identity-regexp '^https://github.com/JMAInformatica/<repo>/.*' \
+  --certificate-identity-regexp '^https://github.com/JMAInformatica/\.github/\.github/workflows/docker-publish\.yml@.*' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  --certificate-github-workflow-repository 'JMAInformatica/<repo>' \
   ghcr.io/jmainformatica/<repo>@<digest>
 ```
 
