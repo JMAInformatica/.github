@@ -79,9 +79,11 @@ jobs:
           fetch-tags: true
           persist-credentials: true
 
+      # $/ é o repositório deste workflow, no commit que o chamador pinou.
+      # ./ seria lido no checkout do chamador, que não tem esta action.
       - name: Reservar versão e criar tag
         id: calc
-        uses: ./.github/actions/version
+        uses: $/.github/actions/version
         with:
           bump: ${{ inputs.bump }}
           tag: ${{ inputs.tag }}
