@@ -37,4 +37,6 @@ jobs:
         run: bash tests/version_test.sh
 
       - name: Tags das actions
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash tests/action_refs_test.sh

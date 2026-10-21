@@ -68,8 +68,10 @@ for file in "${files[@]}"; do
     if [[ -z "$owner" || -z "$name" || -z "$ref" ]]; then
       fail "${file}:${lineno} uses inválido: ${spec}"
     fi
-    if ! ref_exists "$owner" "$name" "$ref"; then
-      fail "${file}:${lineno} ${owner}/${name}@${ref} não existe"
+    errfile="$(mktemp)"
+    if ! ref_exists "$owner" "$name" "$ref" 2>"$errfile"; then
+      detail="$(tr '\n' ' ' <"$errfile")"
+      fail "${file}:${lineno} ${owner}/${name}@${ref} não existe (${detail})"
     fi
     remote_ok=$((remote_ok + 1))
   done <"$file"
