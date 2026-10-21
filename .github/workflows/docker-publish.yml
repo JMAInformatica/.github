@@ -257,8 +257,9 @@ jobs:
           cache-from: type=gha,scope=${{ steps.prep.outputs.cache_scope }}
           cache-to: type=gha,mode=max,scope=${{ steps.prep.outputs.cache_scope }}
 
+      # A tag móvel v4 não existe. A linha 4 publicada é v4.1.2.
       - name: Instalar cosign
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v4.1.2
 
       - name: Assinar imagem (keyless)
         env:

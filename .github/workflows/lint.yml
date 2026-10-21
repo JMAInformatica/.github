@@ -31,7 +31,12 @@ jobs:
           -ignore 'specifying action "\$/.+" in invalid format because ref is missing'
 
       - name: shellcheck
-        run: shellcheck .github/actions/version/version.sh tests/version_test.sh
+        run: shellcheck .github/actions/version/version.sh tests/version_test.sh tests/action_refs_test.sh
 
       - name: Testes da versão
         run: bash tests/version_test.sh
+
+      - name: Tags das actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tests/action_refs_test.sh

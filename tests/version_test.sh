@@ -6,6 +6,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT/.github/actions/version/version.sh"
 PASS=0
 
+# O lint roda dentro de um workflow. Sem isso, GITHUB_REF do CI entra no script
+# e a publicação diária recusa a branch do pull request.
+unset GITHUB_REF GITHUB_REF_NAME GITHUB_RUN_ID GITHUB_EVENT_NAME GITHUB_SHA GITHUB_OUTPUT || true
+
 fail() {
   echo "FALHOU: $*" >&2
   exit 1
