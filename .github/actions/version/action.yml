@@ -1,0 +1,63 @@
+name: Calcular versão JMA
+description: >-
+  Reserva a versão do dia (vAAAA.M.D.N) ou a versão final (vX.Y.Z),
+  cria a tag git anotada e devolve a versão de marketing e o ProductVersion.
+
+inputs:
+  bump:
+    description: Incremento da versão final (major, minor ou patch). Vazio no build diário.
+    required: false
+    default: ""
+  tag:
+    description: Tag final explícita, com ou sem o prefixo v (ex. v1.2.0). Não combine com bump.
+    required: false
+    default: ""
+  default-branch:
+    description: Nome da branch padrão do repositório chamador.
+    required: true
+
+outputs:
+  version:
+    description: Versão de marketing sem o prefixo v (2026.1.5.1 ou 1.2.0).
+    value: ${{ steps.calc.outputs.version }}
+  marketing_version:
+    description: Igual a version. Nome explícito para o projeto WiX.
+    value: ${{ steps.calc.outputs.marketing_version }}
+  tag:
+    description: Tag principal. Diária vAAAA.M.D.N ou final vX.Y.Z.
+    value: ${{ steps.calc.outputs.tag }}
+  date_tag:
+    description: Tag monotônica do dia, também criada na versão final para reservar N.
+    value: ${{ steps.calc.outputs.date_tag }}
+  channel:
+    description: daily ou final.
+    value: ${{ steps.calc.outputs.channel }}
+  product_version:
+    description: ProductVersion do Windows Installer no formato AA.M.(D*100+N).
+    value: ${{ steps.calc.outputs.product_version }}
+  build_date:
+    description: Data America/Fortaleza no formato AAAA.M.D.
+    value: ${{ steps.calc.outputs.build_date }}
+  build_number:
+    description: N do dia, de 1 a 99.
+    value: ${{ steps.calc.outputs.build_number }}
+  sha:
+    description: SHA completo do commit publicado.
+    value: ${{ steps.calc.outputs.sha }}
+  sha_short:
+    description: Sete caracteres do SHA, usados na tag sha-xxxxxxx da imagem.
+    value: ${{ steps.calc.outputs.sha_short }}
+  previous_final_tag:
+    description: Tag final anterior, usada nas notas do GitHub Release. Vazia se não houver.
+    value: ${{ steps.calc.outputs.previous_final_tag }}
+
+runs:
+  using: composite
+  steps:
+    - id: calc
+      shell: bash
+      env:
+        JMA_BUMP: ${{ inputs.bump }}
+        JMA_TAG: ${{ inputs.tag }}
+        JMA_DEFAULT_BRANCH: ${{ inputs.default-branch }}
+      run: bash "$GITHUB_ACTION_PATH/version.sh"

@@ -1,0 +1,38 @@
+# Instalador WiX. Ajuste project, product-name e o comando.
+# TrackOrbit e a pasta desktop/ do SaleOrbit seguem este formato.
+# O comando roda em Git Bash no runner Windows.
+name: Publicar MSI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Incremento da versão final
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  msi:
+    permissions:
+      contents: write
+    uses: JMAInformatica/.github/.github/workflows/msi-release.yml@main
+    with:
+      project: desktop/TrackOrbit.wixproj
+      product-name: TrackOrbit
+      dotnet-version: 10.0.x
+      bump: ${{ inputs.bump }}
+      build-command: |
+        dotnet build "$PROJECT_PATH" -c Release \
+          -p:ProductVersion="$PRODUCT_VERSION" \
+          -p:MarketingVersion="$MARKETING_VERSION"
+    secrets:
+      WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
