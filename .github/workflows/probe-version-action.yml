@@ -1,0 +1,66 @@
+# Prova temporária, removida depois da execução.
+# O workspace é outro repositório. ./ tem de falhar; $/ tem de executar version.sh.
+name: Probe da action de versão
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  caminho-antigo:
+    name: ./ no workspace alheio
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout de outro repositório
+        uses: actions/checkout@v4
+        with:
+          repository: actions/checkout
+          ref: v4
+          persist-credentials: false
+
+      - name: O workspace não tem a action
+        run: test ! -f .github/actions/version/action.yml
+
+      - name: Caminho antigo
+        id: old
+        continue-on-error: true
+        uses: ./.github/actions/version
+        with:
+          default-branch: main
+
+      - name: Registrar resultado
+        run: echo "outcome=${{ steps.old.outcome }}"
+
+  caminho-novo:
+    name: $/ no workspace alheio
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout de outro repositório
+        uses: actions/checkout@v4
+        with:
+          repository: actions/checkout
+          ref: v4
+          persist-credentials: false
+
+      - name: O workspace não tem a action
+        run: test ! -f .github/actions/version/action.yml
+
+      - name: Caminho novo
+        id: calc
+        continue-on-error: true
+        uses: $/.github/actions/version
+        with:
+          default-branch: main
+
+      - name: Registrar resultado
+        run: echo "outcome=${{ steps.calc.outcome }}"
+
+  workflow:
+    name: version.yml fora da branch padrão
+    permissions:
+      contents: write
+    uses: ./.github/workflows/version.yml
