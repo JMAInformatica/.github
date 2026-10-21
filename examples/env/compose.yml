@@ -1,0 +1,8 @@
+# Trecho de compose. O processo lê o ambiente do arquivo, não da imagem.
+services:
+  api:
+    image: ghcr.io/jmainformatica/exemplo:edge
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT:-8080}:8080"

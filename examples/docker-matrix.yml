@@ -1,0 +1,53 @@
+# Várias imagens no mesmo repositório. A versão é calculada uma vez e
+# repassada à matriz, então todas saem com a mesma tag.
+name: Publicar imagens
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Incremento da versão final
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  version:
+    permissions:
+      contents: write
+    uses: JMAInformatica/.github/.github/workflows/version.yml@main
+    with:
+      bump: ${{ inputs.bump }}
+
+  image:
+    needs: version
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: ghcr.io/jmainformatica/saleorbit-api
+            dockerfile: src/Api/Dockerfile
+            context: .
+          - image: ghcr.io/jmainformatica/saleorbit-web
+            dockerfile: web/Dockerfile
+            context: web
+            target: runner
+    uses: JMAInformatica/.github/.github/workflows/docker-publish.yml@main
+    with:
+      version: ${{ needs.version.outputs.version }}
+      channel: ${{ needs.version.outputs.channel }}
+      image: ${{ matrix.image }}
+      dockerfile: ${{ matrix.dockerfile }}
+      context: ${{ matrix.context }}
+      target: ${{ matrix.target }}

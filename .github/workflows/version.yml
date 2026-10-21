@@ -1,0 +1,144 @@
+name: Versão
+
+on:
+  workflow_call:
+    inputs:
+      bump:
+        description: Incremento da versão final (major, minor ou patch). Vazio no build diário e no push de uma tag vX.Y.Z.
+        type: string
+        required: false
+        default: ""
+      tag:
+        description: Tag final explícita (vX.Y.Z ou X.Y.Z). Não combine com bump. Vazio usa a tag do disparo, se houver.
+        type: string
+        required: false
+        default: ""
+    outputs:
+      version:
+        description: Versão de marketing sem o prefixo v (2026.1.5.1 ou 1.2.0).
+        value: ${{ jobs.version.outputs.version }}
+      marketing_version:
+        description: Igual a version. Nome explícito para o WiX.
+        value: ${{ jobs.version.outputs.marketing_version }}
+      tag:
+        description: Tag principal. Diária vAAAA.M.D.N ou final vX.Y.Z.
+        value: ${{ jobs.version.outputs.tag }}
+      date_tag:
+        description: Tag monotônica vAAAA.M.D.N reservada neste build, inclusive na versão final.
+        value: ${{ jobs.version.outputs.date_tag }}
+      channel:
+        description: daily ou final.
+        value: ${{ jobs.version.outputs.channel }}
+      product_version:
+        description: ProductVersion do Windows Installer (AA.M.DNN).
+        value: ${{ jobs.version.outputs.product_version }}
+      build_date:
+        description: Data America/Fortaleza no formato AAAA.M.D.
+        value: ${{ jobs.version.outputs.build_date }}
+      build_number:
+        description: N do dia, de 1 a 99.
+        value: ${{ jobs.version.outputs.build_number }}
+      sha:
+        description: SHA completo do commit.
+        value: ${{ jobs.version.outputs.sha }}
+      sha_short:
+        description: Sete caracteres do SHA.
+        value: ${{ jobs.version.outputs.sha_short }}
+      previous_final_tag:
+        description: Tag final anterior. Vazia se esta for a primeira.
+        value: ${{ jobs.version.outputs.previous_final_tag }}
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    name: Calcular versão
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: jma-version-${{ github.repository }}
+      cancel-in-progress: false
+    outputs:
+      version: ${{ steps.calc.outputs.version }}
+      marketing_version: ${{ steps.calc.outputs.marketing_version }}
+      tag: ${{ steps.calc.outputs.tag }}
+      date_tag: ${{ steps.calc.outputs.date_tag }}
+      channel: ${{ steps.calc.outputs.channel }}
+      product_version: ${{ steps.calc.outputs.product_version }}
+      build_date: ${{ steps.calc.outputs.build_date }}
+      build_number: ${{ steps.calc.outputs.build_number }}
+      sha: ${{ steps.calc.outputs.sha }}
+      sha_short: ${{ steps.calc.outputs.sha_short }}
+      previous_final_tag: ${{ steps.calc.outputs.previous_final_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: true
+
+      - name: Reservar versão e criar tag
+        id: calc
+        uses: ./.github/actions/version
+        with:
+          bump: ${{ inputs.bump }}
+          tag: ${{ inputs.tag }}
+          default-branch: ${{ github.event.repository.default_branch }}
+
+      - name: Criar GitHub Release da versão final
+        if: steps.calc.outputs.channel == 'final'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.calc.outputs.tag }}
+          VERSION: ${{ steps.calc.outputs.version }}
+          PRODUCT_VERSION: ${{ steps.calc.outputs.product_version }}
+          DATE_TAG: ${{ steps.calc.outputs.date_tag }}
+          PREV: ${{ steps.calc.outputs.previous_final_tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            created=0
+            if [[ -n "$PREV" ]]; then
+              if gh release create "$TAG" --title "$VERSION" --latest --generate-notes --notes-start-tag "$PREV"; then
+                created=1
+              fi
+            elif gh release create "$TAG" --title "$VERSION" --latest --generate-notes; then
+              created=1
+            fi
+            if ((created == 0)); then
+              gh release create "$TAG" --title "$VERSION" --latest --notes "Release ${VERSION}"
+            fi
+          fi
+
+          body="$(gh release view "$TAG" --json body --jq '.body // ""')"
+          notes_file="$(mktemp)"
+          printf '%s\n' "$body" | awk '
+            $0 == "<!-- jma-version -->" {skip=1; next}
+            $0 == "<!-- /jma-version -->" {skip=0; next}
+            !skip {print}
+          ' >"$notes_file"
+          cat >>"$notes_file" <<EOF
+
+          <!-- jma-version -->
+          ## Versão JMA
+          - Canal: final
+          - Versão de marketing: ${VERSION}
+          - ProductVersion (Windows Installer): ${PRODUCT_VERSION}
+          - Tag diária reservada: ${DATE_TAG}
+          <!-- /jma-version -->
+          EOF
+          gh release edit "$TAG" --notes-file "$notes_file"
+
+      - name: Resumo
+        run: |
+          {
+            echo "### Versão ${{ steps.calc.outputs.tag }}"
+            echo ""
+            echo "- Canal: \`${{ steps.calc.outputs.channel }}\`"
+            echo "- Marketing: \`${{ steps.calc.outputs.version }}\`"
+            echo "- ProductVersion: \`${{ steps.calc.outputs.product_version }}\`"
+            echo "- Data (America/Fortaleza): \`${{ steps.calc.outputs.build_date }}\`"
+            echo "- Build do dia: \`${{ steps.calc.outputs.build_number }}\`"
+          } >>"$GITHUB_STEP_SUMMARY"

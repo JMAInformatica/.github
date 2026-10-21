@@ -1,0 +1,379 @@
+name: Publicar MSI
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: Caminho do .wixproj, .sln ou projeto WiX, relativo à raiz do repositório.
+        type: string
+        required: true
+      build-command:
+        description: >-
+          Comando bash de build. O runner é Windows com Git Bash.
+          Estão definidas PRODUCT_VERSION, MARKETING_VERSION, VERSION_TAG,
+          VERSION_CHANNEL e PROJECT_PATH.
+        type: string
+        required: true
+      msi-path:
+        description: Arquivo ou glob do MSI. Vazio procura um único *.msi fora de obj/.
+        type: string
+        required: false
+        default: ""
+      product-name:
+        description: Nome do arquivo publicado. O padrão é o nome do repositório.
+        type: string
+        required: false
+        default: ""
+      dotnet-version:
+        description: SDK .NET para actions/setup-dotnet. Vazio usa o SDK já presente no runner.
+        type: string
+        required: false
+        default: ""
+      timestamp-url:
+        description: Servidor de carimbo do tempo da assinatura de código.
+        type: string
+        required: false
+        default: http://timestamp.digicert.com
+      version:
+        description: Versão de marketing já calculada, sem o prefixo v. Vazio calcula a versão aqui.
+        type: string
+        required: false
+        default: ""
+      channel:
+        description: daily ou final. Obrigatório quando version é informada.
+        type: string
+        required: false
+        default: ""
+      product-version:
+        description: >-
+          ProductVersion monotônico AA.M.DNN. Obrigatório no canal final quando
+          version é informada. No canal diário pode ser omitido e é derivado da versão.
+        type: string
+        required: false
+        default: ""
+      bump:
+        description: major, minor ou patch. Usado só quando version está vazia.
+        type: string
+        required: false
+        default: ""
+    outputs:
+      version:
+        description: Versão de marketing sem o prefixo v.
+        value: ${{ jobs.publish.outputs.version }}
+      channel:
+        description: daily ou final.
+        value: ${{ jobs.publish.outputs.channel }}
+      product_version:
+        description: ProductVersion gravado no MSI.
+        value: ${{ jobs.publish.outputs.product_version }}
+      marketing_version:
+        description: Versão exibida ao usuário.
+        value: ${{ jobs.publish.outputs.marketing_version }}
+      tag:
+        description: Tag do GitHub Release.
+        value: ${{ jobs.publish.outputs.tag }}
+      msi_name:
+        description: Nome do arquivo MSI publicado.
+        value: ${{ jobs.publish.outputs.msi_name }}
+      sha256:
+        description: SHA256 hexadecimal do MSI assinado, em minúsculas.
+        value: ${{ jobs.publish.outputs.sha256 }}
+      release_url:
+        description: URL do GitHub Release.
+        value: ${{ jobs.publish.outputs.release_url }}
+    secrets:
+      WINDOWS_CERTIFICATE_BASE64:
+        description: PFX de assinatura de código em Base64. Vazio publica o MSI sem assinatura.
+        required: false
+      WINDOWS_CERTIFICATE_PASSWORD:
+        description: Senha do PFX. Obrigatória apenas quando o certificado é informado.
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    name: Calcular versão
+    if: inputs.version == ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/version.yml
+    with:
+      bump: ${{ inputs.bump }}
+
+  publish:
+    name: Build e release do MSI
+    needs: version
+    if: ${{ !cancelled() && (needs.version.result == 'success' || needs.version.result == 'skipped') }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.resolved.outputs.version }}
+      channel: ${{ steps.resolved.outputs.channel }}
+      product_version: ${{ steps.resolved.outputs.product_version }}
+      marketing_version: ${{ steps.resolved.outputs.marketing_version }}
+      tag: ${{ steps.resolved.outputs.tag }}
+      msi_name: ${{ steps.package.outputs.msi_name }}
+      sha256: ${{ steps.package.outputs.sha256 }}
+      release_url: ${{ steps.release.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Setup .NET
+        if: inputs.dotnet-version != ''
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Resolver versão do instalador
+        id: resolved
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_PRODUCT_VERSION: ${{ inputs.product-version }}
+          COMPUTED_VERSION: ${{ needs.version.outputs.version }}
+          COMPUTED_CHANNEL: ${{ needs.version.outputs.channel }}
+          COMPUTED_PRODUCT_VERSION: ${{ needs.version.outputs.product_version }}
+          COMPUTED_TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$INPUT_VERSION" ]]; then
+            version="${INPUT_VERSION#v}"
+            channel="$INPUT_CHANNEL"
+            product_version="$INPUT_PRODUCT_VERSION"
+            if [[ "$channel" == "daily" ]]; then
+              tag="v${version}"
+            elif [[ "$channel" == "final" ]]; then
+              tag="v${version}"
+            else
+              echo "channel inválido: '${channel}'." >&2
+              exit 1
+            fi
+          else
+            version="${COMPUTED_VERSION#v}"
+            channel="$COMPUTED_CHANNEL"
+            product_version="$COMPUTED_PRODUCT_VERSION"
+            tag="$COMPUTED_TAG"
+          fi
+          if [[ "$channel" != "daily" && "$channel" != "final" ]]; then
+            echo "channel inválido: '${channel}'." >&2
+            exit 1
+          fi
+          if [[ "$channel" == "daily" && -z "$product_version" ]]; then
+            if [[ ! "$version" =~ ^([0-9]{4})\.([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "versão diária inválida: '${version}'." >&2
+              exit 1
+            fi
+            year="${BASH_REMATCH[1]}"
+            month=$((10#${BASH_REMATCH[2]}))
+            day=$((10#${BASH_REMATCH[3]}))
+            n=$((10#${BASH_REMATCH[4]}))
+            if ((n < 1 || n > 99)); then
+              echo "N=${n} está fora de 1..99." >&2
+              exit 1
+            fi
+            product_version="$((10#$year % 100)).${month}.$((day * 100 + n))"
+          fi
+          if [[ ! "$product_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ProductVersion inválido: '${product_version}'." >&2
+            exit 1
+          fi
+          if [[ -z "$tag" ]]; then
+            tag="v${version}"
+          fi
+          {
+            echo "version=${version}"
+            echo "marketing_version=${version}"
+            echo "channel=${channel}"
+            echo "product_version=${product_version}"
+            echo "tag=${tag}"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Compilar
+        shell: bash
+        env:
+          PRODUCT_VERSION: ${{ steps.resolved.outputs.product_version }}
+          MARKETING_VERSION: ${{ steps.resolved.outputs.marketing_version }}
+          VERSION_TAG: ${{ steps.resolved.outputs.tag }}
+          VERSION_CHANNEL: ${{ steps.resolved.outputs.channel }}
+          PROJECT_PATH: ${{ inputs.project }}
+          BUILD_COMMAND: ${{ inputs.build-command }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f "$PROJECT_PATH" ]]; then
+            echo "Projeto não encontrado: ${PROJECT_PATH}" >&2
+            exit 1
+          fi
+          bash -euo pipefail -c "$BUILD_COMMAND"
+
+      - name: Localizar MSI
+        id: locate
+        shell: bash
+        env:
+          MSI_PATH: ${{ inputs.msi-path }}
+        run: |
+          set -euo pipefail
+          mapfile -t found < <(find . -type f -name '*.msi' -not -path '*/obj/*' -not -path '*/.git/*' | sort)
+          selected=()
+          if [[ -n "$MSI_PATH" ]]; then
+            for file in "${found[@]}"; do
+              # O padrão à direita de == é glob de propósito (msi-path pode ser **/*.msi).
+              # shellcheck disable=SC2053
+              if [[ "$file" == "$MSI_PATH" || "$file" == "./$MSI_PATH" || "$file" == $MSI_PATH || "$file" == ./$MSI_PATH ]]; then
+                selected+=("$file")
+              fi
+            done
+          elif [[ "${#found[@]}" -eq 1 ]]; then
+            selected=("${found[0]}")
+          else
+            release=()
+            for file in "${found[@]}"; do
+              case "$file" in
+                *[Rr]elease*) release+=("$file") ;;
+              esac
+            done
+            if [[ "${#release[@]}" -eq 1 ]]; then
+              selected=("${release[0]}")
+            fi
+          fi
+          if [[ "${#selected[@]}" -ne 1 ]]; then
+            echo "Encontrados ${#found[@]} MSI. Informe msi-path." >&2
+            if [[ "${#found[@]}" -gt 0 ]]; then
+              printf ' - %s\n' "${found[@]}" >&2
+            fi
+            exit 1
+          fi
+          echo "msi=${selected[0]}" >>"$GITHUB_OUTPUT"
+          echo "MSI selecionado: ${selected[0]}"
+
+      - name: Assinar MSI
+        shell: pwsh
+        env:
+          MSI: ${{ steps.locate.outputs.msi }}
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          TIMESTAMP_URL: ${{ inputs.timestamp-url }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cert = $env:WINDOWS_CERTIFICATE_BASE64
+          if ([string]::IsNullOrWhiteSpace($cert)) {
+            Write-Host "Certificado de assinatura não configurado. O MSI segue sem assinatura de código."
+            exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            Write-Error "WINDOWS_CERTIFICATE_BASE64 está definido, mas WINDOWS_CERTIFICATE_PASSWORD está vazio."
+            exit 1
+          }
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\signtool.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) {
+            Write-Error "signtool.exe não encontrado no Windows SDK do runner."
+            exit 1
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "jma-codesign.pfx"
+          try {
+            $bytes = [Convert]::FromBase64String(($cert -replace '\s', ''))
+            [System.IO.File]::WriteAllBytes($pfx, $bytes)
+            & $signtool.FullName sign /fd SHA256 /f $pfx /p $env:WINDOWS_CERTIFICATE_PASSWORD /tr $env:TIMESTAMP_URL /td SHA256 $env:MSI
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Remove-Item -Force $pfx -ErrorAction SilentlyContinue
+          }
+
+      - name: Empacotar MSI e SHA256
+        id: package
+        shell: pwsh
+        env:
+          MSI: ${{ steps.locate.outputs.msi }}
+          VERSION: ${{ steps.resolved.outputs.version }}
+          PRODUCT_NAME: ${{ inputs.product-name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = $env:PRODUCT_NAME
+          if ([string]::IsNullOrWhiteSpace($name)) {
+            $name = ($env:GITHUB_REPOSITORY -split '/')[-1]
+          }
+          $invalid = '[<>:"/\\|?*=]'
+          $name = [regex]::Replace($name, $invalid, '-')
+          $leaf = "{0}-{1}.msi" -f $name, $env:VERSION
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $dest = Join-Path (Resolve-Path dist) $leaf
+          Copy-Item -Force $env:MSI $dest
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $dest).Hash.ToLowerInvariant()
+          $shaFile = "$dest.sha256"
+          [System.IO.File]::WriteAllText($shaFile, "$hash  $leaf`n")
+          @(
+            "msi_name=$leaf"
+            "sha256=$hash"
+            "msi_file=$dest"
+            "sha_file=$shaFile"
+          ) | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8NoBOM
+
+      - name: Publicar release
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolved.outputs.tag }}
+          VERSION: ${{ steps.resolved.outputs.version }}
+          CHANNEL: ${{ steps.resolved.outputs.channel }}
+          PRODUCT_VERSION: ${{ steps.resolved.outputs.product_version }}
+          MSI_NAME: ${{ steps.package.outputs.msi_name }}
+          SHA256: ${{ steps.package.outputs.sha256 }}
+          MSI_FILE: ${{ steps.package.outputs.msi_file }}
+          SHA_FILE: ${{ steps.package.outputs.sha_file }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "A tag ${TAG} não existe. Calcule a versão com version.yml antes de publicar o MSI." >&2
+            exit 1
+          fi
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            if [[ "$CHANNEL" == "daily" ]]; then
+              gh release create "$TAG" --title "${VERSION} (diária)" --prerelease --latest=false --notes "Build diário ${VERSION}"
+            else
+              gh release create "$TAG" --title "$VERSION" --latest --notes "Release ${VERSION}"
+            fi
+          fi
+          gh release upload "$TAG" "$MSI_FILE" "$SHA_FILE" --clobber
+          body="$(gh release view "$TAG" --json body --jq '.body // ""')"
+          notes_file="$(mktemp)"
+          printf '%s\n' "$body" | awk '
+            $0 == "<!-- jma-msi -->" {skip=1; next}
+            $0 == "<!-- /jma-msi -->" {skip=0; next}
+            !skip {print}
+          ' >"$notes_file"
+          cat >>"$notes_file" <<EOF
+
+          <!-- jma-msi -->
+          ## Instalador
+          - Arquivo: ${MSI_NAME}
+          - SHA256: ${SHA256}
+          - ProductVersion (Windows Installer): ${PRODUCT_VERSION}
+          - Versão de marketing: ${VERSION}
+          <!-- /jma-msi -->
+          EOF
+          gh release edit "$TAG" --notes-file "$notes_file"
+          url="$(gh release view "$TAG" --json url --jq '.url')"
+          echo "url=${url}" >>"$GITHUB_OUTPUT"
+
+      - name: Upload do artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: msi-${{ steps.resolved.outputs.version }}
+          path: |
+            dist/*.msi
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 30

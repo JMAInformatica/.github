@@ -1,0 +1,38 @@
+# Cole em .github/workflows/docker-publish.yml do repositório da imagem.
+# Ajuste a branch padrão, o Dockerfile e, se quiser, o comando de teste.
+name: Publicar imagem
+
+on:
+  push:
+    branches: [main]
+    # vX.Y.Z dispara a versão final. A tag diária criada pelo GITHUB_TOKEN não reinicia o workflow.
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Incremento da versão final
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  publish:
+    uses: JMAInformatica/.github/.github/workflows/docker-publish.yml@main
+    with:
+      dockerfile: Dockerfile
+      context: .
+      platforms: linux/amd64
+      # image: ghcr.io/jmainformatica/biblia_sagrada
+      # build-args: |
+      #   APP_ENVIRONMENT=Production
+      # test-command: docker run --rm "$IMAGE" --version
+      bump: ${{ inputs.bump }}
