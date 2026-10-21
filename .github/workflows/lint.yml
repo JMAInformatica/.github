@@ -25,7 +25,10 @@ jobs:
           echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
 
       - name: actionlint
-        run: actionlint -color
+        # actionlint 1.7.12 ainda não aceita $/. O padrão só ignora essa forma.
+        run: >-
+          actionlint -color
+          -ignore 'specifying action "\$/.+" in invalid format because ref is missing'
 
       - name: shellcheck
         run: shellcheck .github/actions/version/version.sh tests/version_test.sh

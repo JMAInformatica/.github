@@ -290,6 +290,24 @@ test_parallel_builds_get_distinct_n() {
   [[ "$n2" == "1" || "$n2" == "2" ]] || fail "N inesperado: ${n2}"
 }
 
+test_reusable_workflows_resolve_action_in_this_repo() {
+  local wf version_yml
+  version_yml="$ROOT/.github/workflows/version.yml"
+  grep -Eq '^[[:space:]]*uses:[[:space:]]+\$/\.github/actions/version[[:space:]]*$' "$version_yml" ||
+    fail "version.yml precisa referenciar \$/.github/actions/version"
+  if grep -Eq '^[[:space:]]*uses:[[:space:]]+\./\.github/actions/' "$ROOT"/.github/workflows/*.yml; then
+    fail "action local com ./ é resolvida no repositório chamador"
+  fi
+  for wf in docker-publish.yml msi-release.yml; do
+    grep -Eq '^[[:space:]]*uses:[[:space:]]+\./\.github/workflows/version\.yml[[:space:]]*$' \
+      "$ROOT/.github/workflows/$wf" ||
+      fail "${wf} deixou de chamar version.yml por caminho de workflow do mesmo repositório"
+  done
+  [[ -f "$ROOT/.github/actions/version/action.yml" ]] || fail "action.yml ausente"
+  [[ -f "$ROOT/.github/actions/version/version.sh" ]] || fail "version.sh ausente"
+}
+
+check "referência da action no workflow reutilizável" test_reusable_workflows_resolve_action_in_this_repo
 check "diária sem zero à esquerda" test_daily_shape
 check "segundo build do dia" test_second_build_same_day
 check "reexecução do mesmo run" test_rerun_is_stable
