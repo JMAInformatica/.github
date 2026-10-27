@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: actionlint, shellcheck e versão
@@ -15,23 +19,37 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Instalar shellcheck e actionlint
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y shellcheck
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) latest "$RUNNER_TEMP"
+          # 1.7.12 é a última release. O checksum fica no workflow para não
+          # baixar o instalador de main. Ao subir a versão, atualize também
+          # o ignore de $/ em .github/actionlint.yaml.
+          version=1.7.12
+          case "$(uname -m)" in
+            x86_64) arch=amd64; sha=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 ;;
+            aarch64 | arm64) arch=arm64; sha=325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6 ;;
+            *)
+              echo "arquitetura não suportada: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+          asset="actionlint_${version}_linux_${arch}.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$asset" "https://github.com/rhysd/actionlint/releases/download/v${version}/${asset}"
+          echo "${sha}  $RUNNER_TEMP/$asset" | sha256sum -c -
+          tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/$asset" actionlint
           echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
 
       - name: actionlint
-        # actionlint 1.7.12 ainda não aceita $/. O padrão só ignora essa forma.
-        run: >-
-          actionlint -color
-          -ignore 'specifying action "\$/.+" in invalid format because ref is missing'
+        run: actionlint -color .github/workflows/*.yml examples/*.yml
 
       - name: shellcheck
-        run: shellcheck .github/actions/version/version.sh tests/version_test.sh tests/action_refs_test.sh tests/cosign_identity_test.sh
+        run: shellcheck .github/actions/version/*.sh tests/*.sh
 
       - name: Testes da versão
         run: bash tests/version_test.sh

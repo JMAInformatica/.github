@@ -451,4 +451,4 @@ Modelos em [`examples/env/`](examples/env/).
 
 ## O que roda neste repositório
 
-`.github/workflows/lint.yml` executa actionlint, shellcheck e `tests/version_test.sh` (tags, ProductVersion, reexecução e dois builds paralelos no mesmo dia). Os YAML de `examples/` são modelos para colar nos outros repositórios; eles não disparam daqui.
+`.github/workflows/lint.yml` executa actionlint 1.7.12 (com checksum), shellcheck e `tests/version_test.sh` (tags, ProductVersion, reexecução e dois builds paralelos no mesmo dia). Os YAML de `examples/` são modelos para colar nos outros repositórios: não disparam daqui, mas o actionlint confere a sintaxe.
