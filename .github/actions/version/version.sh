@@ -100,6 +100,19 @@ is_final_tag() {
   [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
+# Final de marketing: vX.Y.Z com major < 100.
+# v2026.1.5 tem três números, mas o major é calendário truncado.
+# Não serve de base do bump nem de notes-start-tag.
+is_marketing_final_tag() {
+  local tag="$1"
+  local major
+  is_final_tag "$tag" || return 1
+  major="${tag#v}"
+  major="${major%%.*}"
+  ((10#$major < 100)) || return 1
+  return 0
+}
+
 is_daily_tag() {
   [[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
@@ -168,7 +181,7 @@ previous_final_tag() {
   local tag version best=""
   while IFS= read -r tag; do
     [[ -z "$tag" ]] && continue
-    is_final_tag "$tag" || continue
+    is_marketing_final_tag "$tag" || continue
     [[ "$tag" == "$exclude" ]] && continue
     version="${tag#v}"
     if [[ -z "$best" ]] || version_gt "$version" "$best"; then
@@ -210,25 +223,6 @@ emit_from_message() {
   out sha "$HEAD_SHA"
   out sha_short "$sha_short"
   out previous_final_tag "$previous"
-}
-
-ensure_remote_tag() {
-  local name="$1"
-  local message="$2"
-  if git rev-parse -q --verify "refs/tags/${name}" >/dev/null; then
-    local current
-    current="$(tag_message "$name")"
-    if [[ "$current" == "$message" ]]; then
-      return 0
-    fi
-    local current_run
-    current_run="$(field RunId "$current")"
-    if [[ -n "$current_run" && "$current_run" != "$GITHUB_RUN_ID" ]]; then
-      fail "a tag ${name} já existe com outro RunId (${current_run})"
-    fi
-  fi
-  git tag -a "$name" -m "$message"
-  git push origin "refs/tags/${name}"
 }
 
 write_message() {
@@ -348,7 +342,7 @@ next_marketing_version() {
   latest="0.0.0"
   while IFS= read -r tag; do
     [[ -z "$tag" ]] && continue
-    is_final_tag "$tag" || continue
+    is_marketing_final_tag "$tag" || continue
     version="${tag#v}"
     if version_gt "$version" "$latest"; then
       latest="$version"
