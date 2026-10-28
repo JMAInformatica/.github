@@ -1,0 +1,8 @@
+# actionlint 1.7.12 rejeita `uses: $/` como se faltasse @ref.
+# $/ é o repositório deste workflow, no commit que o chamador pinou.
+# Apagar o ignore quando rhysd/actionlint#732 sair numa release e a versão
+# pinada em .github/workflows/lint.yml for atualizada.
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - 'specifying action "\$/.+" in invalid format because ref is missing'

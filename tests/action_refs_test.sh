@@ -15,6 +15,7 @@ fail() {
 
 files=(
   .github/workflows/docker-publish.yml
+  .github/workflows/lint.yml
   .github/workflows/msi-release.yml
   .github/workflows/version.yml
   .github/actions/version/action.yml
