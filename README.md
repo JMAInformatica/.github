@@ -60,7 +60,7 @@ A tag é anotada e aponta para o commit do workflow. Reexecutar o mesmo run reut
 Duas portas de entrada:
 
 - `workflow_dispatch` com `bump` em `patch`, `minor` ou `major`, na branch padrão. Sem versão final anterior, `major` produz `1.0.0`, `minor` produz `0.1.0` e `patch` produz `0.0.1`.
-- Push de uma tag `vX.Y.Z` já criada (exatamente três números, major menor que 100).
+- Push de uma tag `vX.Y.Z` já criada (exatamente três números, major menor que 100). Uma tag com major maior ou igual a 100, como `v2026.1.5`, não é final: o bump e a final anterior das notas ignoram ela. O calendário continua em `vAAAA.M.D.N`.
 
 A final também reserva o `N` do dia, numa segunda tag `vAAAA.M.D.N`. Assim o próximo daily não reutiliza o mesmo ProductVersion. A tag que o usuário vê, e a do GitHub Release, é `vX.Y.Z`.
 

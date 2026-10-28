@@ -192,7 +192,7 @@ test_bump_is_monotonic_over_daily() {
   out="$(mktemp)"
   GITHUB_RUN_ID=71 JMA_NOW=2026-01-05 run_version "$repo" "$out"
   daily="$(read_out product_version "$out")"
-  GITHUB_RUN_ID=72 JMA_NOW=2026-01-05 JMA_BUMP=major JMA_EVENT=workflow_dispatch run_version "$repo" "$out"
+  GITHUB_RUN_ID=72 JMA_NOW=2026-01-05 JMA_BUMP=major run_version "$repo" "$out"
   assert_eq "$(read_out version "$out")" "1.0.0" "marketing"
   assert_eq "$(read_out tag "$out")" "v1.0.0" "tag final"
   assert_eq "$(read_out channel "$out")" "final" "channel"
@@ -232,6 +232,37 @@ test_limit_99() {
     fail "o 100º build do dia deveria falhar"
   fi
   grep -q "fora de 1..99" "$out.err"
+}
+
+test_three_field_calendar_tag_is_not_marketing_final() {
+  local repo out
+  repo="$(new_repo)"
+  git -C "$repo" tag v1.2.0
+  git -C "$repo" tag v99.0.0
+  git -C "$repo" tag v100.0.0
+  git -C "$repo" tag v2026.1.5
+  git -C "$repo" push origin --tags >/dev/null
+  out="$(mktemp)"
+  GITHUB_RUN_ID=120 JMA_NOW=2026-03-04 JMA_BUMP=patch run_version "$repo" "$out"
+  assert_eq "$(read_out version "$out")" "99.0.1" "patch ignora major >= 100"
+  assert_eq "$(read_out tag "$out")" "v99.0.1" "tag"
+  assert_eq "$(read_out previous_final_tag "$out")" "v99.0.0" "notas partem da última final válida"
+
+  out="$(mktemp)"
+  repo="$(new_repo)"
+  git -C "$repo" tag v2026.1.5
+  git -C "$repo" push origin --tags >/dev/null
+  GITHUB_RUN_ID=121 JMA_NOW=2026-03-04 JMA_BUMP=patch run_version "$repo" "$out"
+  assert_eq "$(read_out version "$out")" "0.0.1" "sem final anterior o patch começa em 0.0.1"
+  assert_eq "$(read_out previous_final_tag "$out")" "" "notas sem tag de calendário"
+
+  out="$(mktemp)"
+  repo="$(new_repo)"
+  if GITHUB_REF=refs/tags/v2026.1.5 GITHUB_REF_NAME=v2026.1.5 GITHUB_EVENT_NAME=push \
+    GITHUB_RUN_ID=122 JMA_NOW=2026-03-04 run_version "$repo" "$out" >/dev/null 2>"$out.err"; then
+    fail "push de v2026.1.5 deveria continuar recusado"
+  fi
+  grep -q "major >= 100" "$out.err"
 }
 
 test_rejects_non_default_branch() {
@@ -321,6 +352,7 @@ check "tags vizinhas não entram no N" test_unrelated_tags_do_not_consume_n
 check "final monotônica sobre o daily" test_bump_is_monotonic_over_daily
 check "tag final reaproveita ProductVersion" test_explicit_tag_reuses_product_version
 check "limite de 99 builds" test_limit_99
+check "calendário de três campos não é final" test_three_field_calendar_tag_is_not_marketing_final
 check "branch que não é a padrão" test_rejects_non_default_branch
 check "dois pushes paralelos" test_parallel_builds_get_distinct_n
 
